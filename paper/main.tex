@@ -1,0 +1,330 @@
+\documentclass[conference]{IEEEtran}
+\IEEEoverridecommandlockouts
+%Template version as of 6/27/2024
+
+\usepackage{cite}
+\usepackage{amsmath,amssymb,amsfonts}
+\usepackage{algorithmic}
+\usepackage{graphicx}
+\usepackage{textcomp}
+\usepackage{xcolor}
+\usepackage{booktabs}
+\usepackage{multirow}
+\def\BibTeX{{\rm B\kern-.05em{\sc i\kern-.025em b}\kern-.08em
+    T\kern-.1667em\lower.7ex\hbox{E}\kern-.125emX}}
+\begin{document}
+
+\title{Mobile AutoML for Skin Lesion Triage on IoMT Devices}
+
+\author{\IEEEauthorblockN{1\textsuperscript{st} Given Name Surname}
+\IEEEauthorblockA{\textit{dept. name of organization (of Aff.)} \\
+\textit{name of organization (of Aff.)}\\
+City, Country \\
+email address or ORCID}
+}
+
+\maketitle
+
+\begin{abstract}
+Among the most common global malignancies, skin cancer requires expert dermatological examination, access to which may not always be available within the clinical context. In this paper, we propose a full AutoML pipeline to categorise skin lesions into three classes: benign, malignant and precancerous, to be deployed on IoMT edge devices. Using Bayesian optimisation across a constrained space of mobile-friendly architectures, we automatically determine MobileNetV3-Large as the optimal backbone and a well-suited hyperparameter configuration without requiring prior deep learning knowledge. Tested across HAM10000 and externally validated using ISIC 2019, the AutoML solution obtains a weighted AUC-ROC of 0.904 and malignant recall of 65.6\%. A thorough ablation study confirms that automated hyperparameter tuning plays the most crucial role and without it, malignant recall drops by 26 percentage points. Furthermore, TFLite quantisation reduces MobileNetV3-Small to just 2.1 MB (FP16) with CPU inference latency of 2.3 ms per image, confirming viable deployment on constrained devices. Grad-CAM analysis shows that model attention aligns with clinically relevant regions of skin lesions.
+\end{abstract}
+
+\begin{IEEEkeywords}
+AutoML, skin lesion classification, Internet of Medical Things, triage, MobileNetV3, Grad-CAM, explainable AI, edge deployment
+\end{IEEEkeywords}
+
+\section{Introduction}
+ 
+Skin cancer constitutes a significant global health threat~\cite{b1}. In the United States alone, skin cancer cases surpass the combined incidence of all other cancers~\cite{b2}, while the World Health Organization (WHO) reports approximately 300,000 new cases diagnosed globally in 2018~\cite{b3}. Early detection plays a crucial role in improving survival rates, but accurate self-examination of skin cancer is still highly challenging due to the striking resemblance between malignant and benign conditions. In addition to this, dermoscopy is limited to trained medical experts, relying heavily on their visual skills, thereby making large-scale screening impractical.
+ 
+The confluence of artificial intelligence (AI) and machine learning (ML) is rapidly advancing the field of precision oncology~\cite{b4}. In 2022, over 1.5 million new cases were reported worldwide~\cite{b5}, and skin cancer is one of the most common and dangerous cancers, with global mortality rates continuing to increase each year. AI is an emerging and interdisciplinary science~\cite{b6} that has significantly improved performance in basic biology, pharmacology, and clinical medicine, sometimes matching or outperforming human experts. In dermatology, deep learning (DL) methods are gaining popularity in assisting with the identification of diseases~\cite{b7}. However, manually designing these networks is often time-consuming and suboptimal~\cite{b8}, and many models remain computationally intensive and unsuitable for deployment on devices with limited processing power.
+ 
+There are two barriers to clinical translation. The first is that expertise is needed in designing high-performance models including choosing the architecture, hyperparameters and loss function---a resource which the clinical workforce may lack. The second is that models need to be lightweight when deployed on devices with limited resources. As Watt~et~al. observe, AI assistants often require an Internet connection to function~\cite{b9}, limiting their reach where access to specialised healthcare and Internet infrastructure remains limited. Consumer smartphones and wearable devices create opportunities to capture health data continuously, passively, and in real-world settings~\cite{b10}, opening a path for on-device medical triage.
+ 
+Automated Machine Learning (AutoML) addresses the expertise gap by automatically dealing with the required steps such as pre-processing, feature engineering, model selection and hyperparameter optimisation~\cite{b11}. AutoKeras, an open-source AutoML framework, has been shown to outperform bespoke models across multiple medical imaging datasets, and more trials and higher resolutions may not be necessary for optimal performance.
+ 
+In this work, the proposed AutoML pipeline considers the three-class problem of skin lesion triage (benign, malignant, precancerous) targeted to IoMT deployment. Our contribution aims to reach the following goals: (1)~a mobile-constrained AutoML search for the best lightweight architecture and hyperparameters in the domain of dermoscopic triage; (2)~a systematic ablation study quantifying the contribution of each component of the pipeline; and (3)~an extensive deployment analysis including TFLite quantisation and Grad-CAM explainability.
+
+\section{Related Work}
+ 
+\subsection{Skin Lesion Classification}
+ 
+Training of neural networks for automated diagnosis of pigmented skin lesions is hampered by the small size and lack of diversity of available datasets of dermatoscopic images. To address this, in 2018 Tschandl~et~al.~\cite{b12} released the HAM10000 dataset, a large collection of multi-source dermatoscopic images consisting of 10,015 images which can be used for ML and for comparisons with human experts. Cassidy~et~al.~\cite{b13} conducted an analysis of the ISIC datasets and found a significant number of duplicate images, both within and between the datasets, proposing a curated duplicate removal strategy. Among recent architectures, Lilhore~et~al.~\cite{b14} proposed a hybrid U-Net and improved MobileNet-V3 that substituted the crossed-entropy loss function with a bias loss function to enhance the accuracy. Mir~et~al.~\cite{b15} proposed LesNet, an end-to-end classification architecture built on top of transfer learning with data augmentation, achieving 98\% accuracy on HAM10000. Additionally, Alzamili and Ruhaiyem~\cite{b16} introduced Skin-DeepNet for multi-class classification on both ISIC~2019 and HAM10000.
+ 
+\subsection{AutoML and Neural Architecture Search}
+ 
+Automated DL is promising in AI. However, a few applications of automated DL networks have been made in the clinical medical fields. Gijsbers~et~al.~\cite{b17} introduced AMLB, an open and extensible benchmark conducting a thorough comparison of 9 well-known AutoML frameworks across 71 classification and 33 regression tasks. Ku\c{s}~et~al.~\cite{b18} conducted a comparative analysis of NAS methods, demonstrating that their approaches outperform state-of-the-art architectures like ResNet-18 and AutoML frameworks including AutoKeras and Google AutoML. Al-Gaashani~et~al.~\cite{b19} applied AutoKeras for medical diagnosis, noting the robustness of the adopted model is due to it not needing any prior knowledge from deep learning. Rashed~et~al.~\cite{b20} evaluated seven AutoML techniques on breast cancer datasets, with Lazy Predict and MATLAB Classification Learner outperforming all other ML techniques.
+ 
+\subsection{Explainable AI in Dermatology}
+ 
+Clinical adoption requires not only accuracy but interpretability. Fiaz~et~al.~\cite{b21} integrated a U-Net-based segmentation network with a classification module based on the EfficientNet-B0 backbone, incorporating Grad-CAM for clinical trust. Dagnaw~et~al.~\cite{b22} combined Vision Transformers with explainable AI, emphasising that interpretability methods build trust in automated dermatological diagnosis.
+ 
+\subsection{IoMT and Edge Deployment}
+ 
+Deploying DL on IoMT devices imposes strict constraints on model size, latency, and power consumption. Mittal~\cite{b23} surveyed DL-based lightweight object detection models on edge devices, noting that designing such lightweight object recognition models is more difficult than ever. Ortiz~et~al.~\cite{b24} reviewed preprocessing techniques for wearable sensor data in cancer care, finding a pressing need to develop and adopt uniform data quality standards.
+
+\section{Methodology}
+ 
+Fig.~\ref{fig:arch} presents the overall architecture of the proposed pipeline, which spans four phases: data preparation, AutoML search, evaluation, and deployment.
+ 
+\begin{figure*}[htbp]
+\centerline{\includegraphics[width=\textwidth]{figures/Figure1.png}}
+\caption{Architecture of the proposed Mobile AutoML pipeline for skin lesion triage on IoMT devices. The pipeline spans four phases: data preparation (HAM10000, 3-class mapping, stratified split), AutoML search (Bayesian optimisation over mobile-friendly architectures), evaluation (comparative analysis, ablation study), and deployment (TFLite quantisation, Grad-CAM explainability, external validation on ISIC 2019).}
+\label{fig:arch}
+\end{figure*}
+ 
+\subsection{Dataset and Preprocessing}
+ 
+Cases include a representative collection of all important diagnostic categories in the realm of pigmented lesions. The HAM10000 dataset consists of 10,015 dermatoscopic images spanning seven diagnostic categories: melanocytic nevi (nv), melanoma (mel), benign keratosis-like lesions (bkl), basal cell carcinoma (bcc), actinic keratoses (akiec), vascular lesions (vasc), and dermatofibroma (df). More than 50\% of lesions have been confirmed by pathology, while the ground truth for the rest was either follow-up, expert consensus, or confirmation by in-vivo confocal microscopy. All images are resized to $224 \times 224$ pixels and normalised to $[0, 1]$. A Rescaling layer ($\times 255$) is incorporated within each model to restore the $[0, 255]$ range expected by ImageNet-pretrained backbones.
+ 
+\subsection{Three-Class Triage Mapping}
+ 
+We aggregate the seven categories into three clinically meaningful classes: Benign (nv, bkl, df, vasc; $n=8{,}061$), Malignant (mel, bcc; $n=1{,}627$), and Precancerous (akiec; $n=327$). This mapping captures the clinical decision at the point of care: no urgent action, urgent specialist referral, or monitoring and follow-up. The dataset is split 80/10/10 into training ($n=8{,}037$), validation ($n=1{,}000$), and test ($n=978$) sets, stratified by \textit{lesion\_id} rather than image ID to prevent data leakage from multi-view images of the same lesion. Fig.~\ref{fig:dist} illustrates the severe class imbalance in both the original and triage distributions.
+ 
+\begin{figure}[htbp]
+\centerline{\includegraphics[width=\columnwidth]{figures/Figure2.png}}
+\caption{Class distribution of the HAM10000 dataset. Left: original 7-class distribution. Right: three-class triage mapping showing severe imbalance (80.5\% benign, 16.2\% malignant, 3.3\% precancerous).}
+\label{fig:dist}
+\end{figure}
+ 
+\subsection{Loss Function and Class Balancing}
+ 
+The final dataset contains a considerable class imbalance (80.5\% benign, 16.2\% malignant, 3.3\% precancerous) and the results of the system as a whole may be distorted if not properly addressed. Two complementary mechanisms are employed. First, a focal loss function as per Lin~et~al.~\cite{b25} is adopted, with $\gamma = 2.0$. Focal loss was originally introduced for dense object detection and adds a modulating factor $(1 - p_t)^\gamma$ to the standard cross-entropy, reducing the loss contribution from easy examples and concentrating the learning on hard-to-classify minority cases:
+\begin{equation}
+\mathcal{L}_{\text{focal}} = -\frac{1}{N}\sum_{i=1}^{N} \alpha_{y_i} (1 - p_{y_i})^\gamma \log(p_{y_i})
+\label{eq:focal}
+\end{equation}
+where $p_{y_i}$ is the predicted probability for the true class $y_i$, $\gamma$ controls the rate at which easy examples are down-weighted, and $\alpha_{y_i}$ is the class-specific weight. Following the approach where the weights assigned to classes were determined by their frequency in the training set, the class weights $\alpha_c$ are computed inversely proportional to class frequency:
+\begin{equation}
+\alpha_c = \frac{N}{C \cdot N_c}
+\label{eq:classweight}
+\end{equation}
+where $N$ is the total number of samples, $C$ is the number of classes, and $N_c$ is the number of samples in class $c$. This yields $\alpha_{\text{benign}} = 0.41$, $\alpha_{\text{malignant}} = 2.05$, and $\alpha_{\text{precancerous}} = 10.21$, amplifying the gradient signal for the minority classes by up to $25\times$ relative to benign.
+ 
+\subsection{AutoML Pipeline}
+ 
+Bayesian optimisation is an approach that employs probabilistic algorithms to search accurately for the most practical combination of hyperparameters. In our pipeline, Keras Tuner implements this search over a constrained space of mobile-friendly architectures. The search space encompasses five dimensions:
+\begin{itemize}
+    \item Backbone: MobileNetV3-Small, MobileNetV3-Large, EfficientNet-B0
+    \item Fine-tuned layers: 0, 20, or 40 (from the top)
+    \item Dense units: 64, 128, or 256
+    \item Dropout rate: 0.2 to 0.5 (step 0.1)
+    \item Learning rate: $10^{-3}$, $5 \times 10^{-4}$, $10^{-4}$
+\end{itemize}
+Heavier models such as ResNet-50 or EfficientNet-B7 are deliberately excluded to enforce the IoMT deployment constraint. After 10 search trials, the best configuration is retrained with an extended budget of 50 epochs, early stopping with patience of 7, and ReduceLROnPlateau with patience of 3. The Bayesian method consists of three stages: generating architectures, training them, and updating the surrogate model to guide subsequent exploration. By generating queries and learning from the performance, the framework finds the best model architecture. To mitigate training stochasticity, the optimal configuration is trained three times with different random initialisations (seeds 42, 43, 44), and the run achieving the highest weighted AUC-ROC on the validation set is kept as the final model. The selection criterion is formalised as:
+\begin{equation}
+m^{*} = \arg\max_{m \in \{m_1, m_2, m_3\}} \text{AUC}_{\text{weighted}}(m, \mathcal{D}_{\text{val}})
+\label{eq:model_select}
+\end{equation}
+where $m_1, m_2, m_3$ denote the three independently trained instances of the same architecture and hyperparameter configuration, $\mathcal{D}_{\text{val}}$ is the held-out validation set, and $m^{*}$ is the selected model carried forward to evaluation. This multi-run strategy reduces the risk that a single unlucky initialisation yields a suboptimal model.
+ 
+\subsection{Baseline Models}
+ 
+Two manually configured baselines are included: MobileNetV3-Small (1.0M parameters), the smallest architecture in the search space, and EfficientNet-B0 (4.2M parameters), a mid-range architecture frequently used for medical imaging tasks. Both baselines are trained with the same settings discovered by the AutoML search---focal loss, class weights, 40 fine-tuned layers, dropout 0.4, learning rate $10^{-3}$---representing the best-case scenario for manual configuration. This deliberate design choice is examined in the ablation study, where we also evaluate a default-hyperparameter variant to quantify the contribution of the automated search.
+ 
+\subsection{Model Quantisation}
+ 
+TinyML aims to solve the connectivity problem by hosting AI assistants on constrained devices, eliminating connectivity issues by processing data within the device itself. To enable such on-device deployment, each trained model is converted to TensorFlow Lite (TFLite) at multiple quantisation levels. FP32 serves as the baseline, FP16 halves the model size with negligible accuracy loss, and INT8 applies full integer quantisation using a representative calibration set of 200 training images. For each variant, we measure model size $S$ in MB, test accuracy $A$, and mean per-image CPU inference latency $\bar{L}$ (Eq.~\ref{eq:latency}):
+\begin{equation}
+\bar{L} = \frac{1}{n}\sum_{i=1}^{n} L_i \quad \text{(ms per image)}
+\label{eq:latency}
+\end{equation}
+where $n$ is the number of test images and $L_i$ is the wall-clock time for a single forward pass. Benchmarking was conducted on CPU to simulate inference on IoMT edge devices where GPU acceleration is typically unavailable.
+ 
+\subsection{Explainability}
+ 
+The use of explainable AI enhances transparency, a crucial factor in the clinical acceptance of AI-based diagnostic tools. To improve model interpretability and foster clinical trust, Grad-CAM is incorporated, allowing clinicians to visualise heatmaps that highlight the regions influencing the model's decisions. As introduced by Selvaraju~et~al.~\cite{b26}, Grad-CAM produces heatmaps using the activations of the last convolutional layer, which minimises the need for architectural modifications. Specifically, Grad-CAM computes a weighted combination of the feature maps $A^k$ from the last convolutional layer, using the gradient of the target class score $y^c$ with respect to each map:
+\begin{equation}
+L_{\text{Grad-CAM}}^{c} = \text{ReLU}\left(\sum_k w_k^c \cdot A^k\right), \quad w_k^c = \frac{1}{Z}\sum_i \sum_j \frac{\partial y^c}{\partial A_{ij}^k}
+\label{eq:gradcam}
+\end{equation}
+where $w_k^c$ represents the importance of feature map $k$ for class $c$, and $Z$ is the spatial resolution of the feature map. The ReLU is applied because only features that have a positive influence on the class of interest are relevant. Powerful segmentation together with Grad-CAM explainable images can considerably drive clinical accuracy and location evaluation of skin lesions. The resulting heatmaps are evaluated on representative samples from each triage class to verify clinical coherence with known dermoscopic patterns.
+ 
+
+\section{Results}
+ 
+\subsection{AutoML Architecture Selection}
+ 
+By generating queries and learning from the performance, the Bayesian search finds the best model architecture. Over 10 trials on our triage task, comparable performance was already achieved with just 10 trials---the search selected MobileNetV3-Large with 40 fine-tuned layers, dropout 0.4, 128 dense units and learning rate $10^{-3}$ as the optimal configuration. EfficientNet-B0 ranked lower across all trials. Once convergence was reached, the best model was saved, and a final training phase fine-tuned the model using the validation set. To reduce seed variance, the configuration was retrained three times (seeds 42, 43, 44); run~3 reached the highest validation AUC-ROC of 0.904 and was kept as the final model.
+ 
+\subsection{Comparative Evaluation}
+ 
+Table~\ref{tab:main} reports the test set results ($n=978$).
+ 
+\begin{table}[htbp]
+\caption{Classification Performance on HAM10000 Test Set}
+\begin{center}
+\begin{tabular}{|l|c|c|c|c|c|}
+\hline
+\textbf{Model} & \textbf{Params} & \textbf{Acc.} & \textbf{Rec.\textsubscript{mal}} & \textbf{Rec.\textsubscript{pre}} & \textbf{AUC} \\
+\hline
+AutoML-MNV3L & 3.1M & 0.800 & 0.656 & 0.833 & 0.904 \\
+MobileNetV3-S & 1.0M & 0.819 & 0.662 & 0.867 & 0.905 \\
+EfficientNet-B0 & 4.2M & 0.779 & 0.552 & 0.867 & 0.873 \\
+\hline
+\end{tabular}
+\label{tab:main}
+\end{center}
+\end{table}
+ 
+MobileNetV3-Small with the AutoML-discovered hyperparameters reaches 81.9\% accuracy and 0.905 AUC-ROC with only 1.0M parameters. EfficientNet-B0, the largest model at 4.2M, obtains the lowest malignant recall (55.2\%) and AUC (0.873). Simple architectures can exhibit better generalisation and avoid overfitting in scenarios where the dataset is relatively small or lacks diversity---in our case, HAM10000 contains only 1,627 malignant and 327 precancerous samples. Simpler models can be sufficient for achieving the best results, especially when considering factors such as dataset size and complexity. Fig.~\ref{fig:cm} shows the normalised confusion matrices for the three models.
+ 
+\begin{figure*}[htbp]
+\centerline{\includegraphics[width=\textwidth]{figures/Figure3.png}}
+\caption{Normalised confusion matrices for the three models on the HAM10000 test set. AutoML-MNV3L and MobileNetV3-S achieve balanced recall across all classes, while EfficientNet-B0 shows higher misclassification of malignant lesions.}
+\label{fig:cm}
+\end{figure*}
+ 
+\subsection{Ablation Study}
+ 
+Table~\ref{tab:ablation} reports a systematic ablation on MobileNetV3-Large.
+ 
+\begin{table}[htbp]
+\caption{Ablation Study: Component Contributions}
+\begin{center}
+\begin{tabular}{|l|c|c|c|c|}
+\hline
+\textbf{Configuration} & \textbf{Acc.} & \textbf{Rec.\textsubscript{mal}} & \textbf{Macro R.} & \textbf{AUC} \\
+\hline
+Full pipeline & 0.800 & 0.656 & 0.772 & 0.904 \\
+$-$ Focal loss & 0.877 & 0.656 & 0.718 & 0.894 \\
+$-$ Class weights & 0.765 & 0.701 & 0.759 & 0.894 \\
+$-$ HP search & 0.729 & 0.396 & 0.609 & 0.830 \\
+\hline
+\end{tabular}
+\label{tab:ablation}
+\end{center}
+\end{table}
+ 
+Removing the HP search drops malignant recall from 65.6\% to 39.6\% and AUC-ROC from 0.904 to 0.830. This gap of 26 percentage points amounts to approximately 40 additional missed malignant cases per 154 test patients. The recall for melanoma is noticeably lower than that for benign classes. This is a significant finding: a reduced recall for melanoma heightens the likelihood of false negatives, meaning malignant cases might go undetected and untreated.
+ 
+Without focal loss, overall accuracy rises to 87.7\% yet precancerous recall falls from 83.3\% to 56.7\%. The results of the system as a whole may be distorted by this imbalance---although high overall accuracy is retained, biases at a class level remain, especially under highly imbalanced conditions. The ablation thus confirms that focal loss is not needed for accuracy but for minority-class sensitivity. Fig.~\ref{fig:ablation} shows the component-wise trade-offs.
+ 
+\begin{figure}[htbp]
+\centerline{\includegraphics[width=\columnwidth]{figures/Figure4.png}}
+\caption{Ablation study showing the contribution of each pipeline component. Removing the HP search causes the largest drop in malignant recall and AUC-ROC.}
+\label{fig:ablation}
+\end{figure}
+ 
+\subsection{Quantisation for IoMT Deployment}
+ 
+Table~\ref{tab:quant} reports model size, accuracy and latency after TFLite conversion. The majority of lightweight models employ TensorFlow Lite quantization, which is easy to deploy on edge devices.
+ 
+\begin{table}[htbp]
+\caption{TFLite Quantisation: Size, Accuracy and Latency}
+\begin{center}
+\begin{tabular}{|l|l|c|c|c|}
+\hline
+\textbf{Model} & \textbf{Quant.} & \textbf{Size} & \textbf{Acc.} & \textbf{Lat. (ms)} \\
+\hline
+\multirow{2}{*}{AutoML-MNV3L} & FP32 & 12.4 MB & 0.816 & 7.4 \\
+ & FP16 & 6.2 MB & 0.818 & 7.2 \\
+\hline
+\multirow{2}{*}{MobileNetV3-S} & FP32 & 4.0 MB & 0.828 & 2.3 \\
+ & FP16 & 2.1 MB & 0.832 & 2.3 \\
+\hline
+\multirow{2}{*}{EffNet-B0} & FP16 & 8.4 MB & 0.796 & 20.2 \\
+ & INT8 & 5.1 MB & 0.814 & 15.5 \\
+\hline
+\end{tabular}
+\label{tab:quant}
+\end{center}
+\end{table}
+ 
+TinyML aims to solve this problem by hosting artificial intelligence assistants on constrained devices, eliminating connectivity issues by processing data within the device itself. At FP16, MobileNetV3-Small reaches 2.1~MB and 2.3~ms per image on CPU, with accuracy of 0.832. The AutoML model at FP16 yields 6.2~MB with 0.818 accuracy. INT8 quantisation failed for both MobileNetV3 variants due to XNNPACK runtime incompatibilities; EfficientNet-B0 at INT8 reached 5.1~MB with 0.814 accuracy. For reference, the developed prototype achieved a test accuracy of 78\% when trained on the HAM10000 dataset and deployed to a device without Internet access---our quantised models surpass this with a smaller footprint. Fig.~\ref{fig:scatter} plots the accuracy--size trade-off.
+ 
+\begin{figure}[htbp]
+\centerline{\includegraphics[width=\columnwidth]{figures/Figure5.png}}
+\caption{Accuracy vs model size for all quantised variants. MobileNetV3-S at FP16 (2.1~MB) occupies the optimal position for IoMT deployment.}
+\label{fig:scatter}
+\end{figure}
+ 
+\subsection{Grad-CAM Explainability}
+ 
+Fig.~\ref{fig:gradcam} shows the Grad-CAM outputs for both models. The generated heatmaps highlight the regions of input images that contribute the most to the model decision to classify images as benign or malignant. This provides clinicians with valuable insights into the features that influence classification decisions. The ability to predict the correct lesion mask, combined with Grad-CAM's visual explanation, significantly aids dermatologists in precisely recognizing the type and location of the skin disease. These advancements are particularly critical in clinical settings with limited access to skilled dermatologists, as they reduce diagnostic delays. Visualization is crucial in building trust in AI models, as professionals can visually validate the model's focus areas and ensure alignment with their diagnostic reasonings.
+ 
+\begin{figure}[htbp]
+\centerline{\includegraphics[width=\columnwidth]{figures/Figure6.png}}
+\caption{Grad-CAM heatmaps for representative benign, malignant, and precancerous lesions. Left column: original image. Centre: AutoML-MNV3L. Right: MobileNetV3-S. Both models attend to clinically relevant lesion regions.}
+\label{fig:gradcam}
+\end{figure}
+ 
+\subsection{External Validation}
+ 
+ISIC~2019 was used for external validation ($n=3{,}000$), excluding 9,818 HAM10000 overlaps and 628 SCC lesions absent from training. Accuracy dropped to 61.5\% and AUC-ROC to 0.725. This was due to the more even class distribution in HAM10000 than in ISIC 2019---the external set contained 41.4\% malignant versus 16.2\% in training. Duplicate images within and across ISIC datasets, train/test overlap, class imbalance, label noise from non-biopsy-verified ground truth have all been documented; our evaluation removed overlaps by image identifier. Malignant recall fell from 65.6\% to 49.8\% and precancerous recall from 83.3\% to 40.9\%. The class-wise in-depth analysis corroborates that although high overall accuracy is retained, biases at a class level remain, especially under highly imbalanced conditions.
+ 
+\section{Discussion}
+ 
+The central finding of this study is that automated hyperparameter search is the single most impactful component of the pipeline. The ablation study makes this concrete: without the HP search, even the same MobileNetV3-Large architecture with default parameters drops to 39.6\% malignant recall. Melanoma poses a higher risk of metastasis and contributes significantly to mortality related to skin cancer, so a model that misses 60\% of malignant cases would be clinically unacceptable. The robustness of the adopted model is due to it not needing any prior knowledge from deep learning---an ML model can be generated with no particular programming or deep learning knowledge being required. This accessibility is essential for clinical adoption, where the expertise barrier has historically limited the translation of DL methods into practice.
+ 
+The comparative results show that MobileNetV3-Small outperforms the larger EfficientNet-B0 across all metrics. Simple architectures can exhibit better generalisation and avoid overfitting in scenarios where the dataset is relatively small or lacks diversity, and HAM10000 falls squarely within this category. This observation aligns with the principle that comparable performance can already be achieved with just 10 trials, suggesting that exhaustive search budgets are unnecessary when the architecture space is appropriately constrained.
+ 
+The quantisation results confirm that on-device deployment is practical: MobileNetV3-Small at FP16 requires only 2.1~MB of storage and processes each image in 2.3~ms on CPU, well within the constraints of modern smartphones. The usage of external cloud platforms is often challenging for medical data in practice, due to patient privacy concerns; on-device inference sidesteps this by keeping patient data on the device itself. These lightweight and simple CNN models can be easily built and deployed within healthcare, offering high diagnostic accuracy while eliminating data privacy and cloud computing cost issues.
+ 
+The external validation results on ISIC~2019, while showing reduced performance, reflect the well-documented difficulty of cross-dataset generalisation in dermatological AI. Skin lesion analysis suffers from limited datasets, often containing only a few thousand images or less, and the intricate problem of high inter-class similarity coupled with substantial intra-class variations further complicates the issue. Adapting models to local populations through re-training is a practical path forward, and the AutoML pipeline facilitates this by design.
+ 
+Two limitations should be noted. First, the precancerous class contains only 327 training samples (3.3\%), and training of neural networks for automated diagnosis of pigmented skin lesions is hampered by the small size and lack of diversity of available datasets. Second, the pipeline does not incorporate patient metadata (age, sex, lesion localisation), which has been shown to improve classification performance. Future work will address these limitations and explore federated learning approaches for privacy-preserving model updates across distributed IoMT networks, where sensitive data remain on local nodes and only model updates are shared for aggregation.
+ 
+\section{Conclusion}
+ 
+This paper presents a complete AutoML pipeline for three-class skin lesion triage designed for IoMT edge deployment. The pipeline automatically identifies MobileNetV3-Large as the optimal architecture and discovers a hyperparameter configuration achieving an AUC-ROC of 0.904 with 65.6\% malignant recall. A systematic ablation study shows that the automated hyperparameter search is the most impactful component, with its removal causing a 26-point drop in malignant recall. TFLite quantisation enables deployment on resource-constrained devices, with MobileNetV3-Small at FP16 requiring only 2.1~MB and 2.3~ms latency per image. Grad-CAM heatmaps confirm that model attention aligns with clinically relevant lesion regions, supporting transparency in automated triage decisions.
+ 
+The development of AutoML has raised the possibility for medical practitioners to optimise classification models on their own, offering a promising solution that eliminates the need for deep learning expertise. Future work will incorporate patient metadata, explore larger training datasets including SCC lesions, and pursue prospective clinical validation to bridge the gap between experimental benchmarks and real-world deployment.
+
+\begin{thebibliography}{00}
+ 
+\bibitem{b1} G.~Munjal, P.~Bhardwaj, V.~Bhargava, S.~Singh, and N.~Nagpal, ``SkinSage XAI: an explainable deep learning solution for skin lesion diagnosis,'' \textit{Health Care Sci.}, vol.~3, no.~6, pp.~438--455, 2024.
+ 
+\bibitem{b2} K.~M.~Selvaraj, S.~Gnanagurusubbiah, R.~R.~R.~Roy, J.~H.~J.~Peter, and S.~Balu, ``Enhancing skin lesion classification with advanced deep learning ensemble models: a path towards accurate medical diagnostics,'' \textit{Curr. Probl. Cancer}, vol.~49, p.~101077, 2024.
+ 
+\bibitem{b3} A.~Ray, S.~Sarkar, F.~Schwenker, and R.~Sarkar, ``Decoding skin cancer classification: perspectives, insights, and advances through researchers' lens,'' \textit{Sci. Rep.}, vol.~14, p.~30542, 2024.
+ 
+\bibitem{b4} E.~Fountzilas, T.~Pearce, M.~A.~Baysal, A.~Chakraborty, and A.~M.~Tsimberidou, ``Convergence of evolving artificial intelligence and machine learning techniques in precision oncology,'' \textit{npj Digit. Med.}, vol.~8, no.~75, 2025.
+ 
+\bibitem{b5} Vincent and N.~Surantha, ``Federated deep learning and real-time inference on edge computing device for skin cancer classification,'' \textit{Appl. Sci.}, vol.~16, no.~5, p.~2289, 2026.
+ 
+\bibitem{b6} J.~Li, L.~Zhang, Z.~Yu, Z.~Bao, D.~Li, and L.~Wang, ``The impact of AI on modern oncology from early detection to personalized cancer treatment,'' \textit{npj Precis. Oncol.}, 2026.
+ 
+\bibitem{b7} L.~Gamage, U.~Isuranga, D.~Meedeniya, S.~De~Silva, and P.~Yogarajah, ``Melanoma skin cancer identification with explainability utilizing mask guided technique,'' \textit{Electronics}, vol.~13, no.~4, p.~680, 2024.
+ 
+\bibitem{b8} Z.~Ku\c{s}, M.~Aydin, B.~Kiraz, and A.~Kiraz, ``Neural Architecture Search for biomedical image classification: a comparative study across data modalities,'' \textit{Artif. Intell. Med.}, vol.~160, p.~103064, 2025.
+ 
+\bibitem{b9} T.~Watt, C.~Chrysoulas, P.~J.~Barclay, B.~El~Boudani, and G.~Kalliatakis, ``Moving healthcare AI support systems for visually detectable diseases to constrained devices,'' \textit{Appl. Sci.}, vol.~14, p.~11474, 2024.
+ 
+\bibitem{b10} C.~A.~Low, ``Harnessing consumer smartphone and wearable sensors for clinical cancer research,'' \textit{npj Digit. Med.}, vol.~3, p.~140, 2020.
+ 
+\bibitem{b11} K.~Elangovan, G.~Lim, and D.~Ting, ``A comparative study of an on premise AutoML solution for medical image classification,'' \textit{Sci. Rep.}, vol.~14, p.~10483, 2024.
+ 
+\bibitem{b12} P.~Tschandl, C.~Rosendahl, and H.~Kittler, ``The HAM10000 dataset, a large collection of multi-source dermatoscopic images of common pigmented skin lesions,'' \textit{Sci. Data}, vol.~5, p.~180161, 2018.
+ 
+\bibitem{b13} B.~Cassidy, C.~Kendrick, A.~Brodzicki, J.~Jaworek-Korjakowska, and M.~H.~Yap, ``Analysis of the ISIC image datasets: usage, benchmarks and recommendations,'' \textit{Med. Image Anal.}, vol.~75, p.~102305, 2022.
+ 
+\bibitem{b14} U.~K.~Lilhore \textit{et al.}, ``A precise model for skin cancer diagnosis using hybrid U-Net and improved MobileNet-V3 with hyperparameters optimization,'' \textit{Sci. Rep.}, vol.~14, p.~4299, 2024.
+ 
+\bibitem{b15} A.~N.~Mir, I.~Nissar, D.~R.~Rizvi, and A.~Kumar, ``LesNet: an automated skin lesion deep convolutional neural network classifier through augmentation and transfer learning,'' \textit{Procedia Comput. Sci.}, vol.~235, pp.~112--121, 2024.
+ 
+\bibitem{b16} A.~H.~Alzamili and N.~I.~R.~Ruhaiyem, ``Skin-DeepNet: a deep learning framework for automated early diagnosis and classification of skin cancer lesions in dermoscopy images,'' \textit{Sci. Rep.}, 2025.
+ 
+\bibitem{b17} P.~Gijsbers \textit{et al.}, ``AMLB: an AutoML Benchmark,'' \textit{J. Mach. Learn. Res.}, pp.~1--48, 2023.
+ 
+\bibitem{b18} Z.~Ku\c{s}, M.~Aydin, B.~Kiraz, and A.~Kiraz, ``An efficient neural architecture search model for medical image classification,'' in \textit{Proc. ESANN}, Bruges, Belgium, 2024.
+ 
+\bibitem{b19} A.~Alaiad, A.~Migdady, R.~M.~Al-Khatib, O.~Alzoubi, R.~A.~Zitar, and L.~Abualigah, ``Autokeras approach: a robust automated deep learning network for diagnosis disease cases in medical images,'' \textit{J. Imaging}, vol.~9, no.~3, p.~64, 2023.
+ 
+\bibitem{b20} A.~E.~E.~Rashed, A.~M.~Elmorsy, and A.~E.~M.~Atwa, ``Comparative evaluation of automated machine learning techniques for breast cancer diagnosis,'' \textit{Biomed. Signal Process. Control}, vol.~86, p.~105016, 2023.
+ 
+\bibitem{b21} M.~Fiaz \textit{et al.}, ``An explainable hybrid deep learning framework for precise skin lesion segmentation and multi-class classification,'' \textit{Front. Med.}, 2025.
+ 
+\bibitem{b22} G.~H.~Dagnaw, M.~El~Mouhtadi, and M.~Mustapha, ``Skin cancer classification using vision transformers and explainable artificial intelligence,'' \textit{J. Med. Artif. Intell.}, vol.~7, p.~14, 2024.
+ 
+\bibitem{b23} P.~Mittal, ``A comprehensive survey of deep learning-based lightweight object detection models for edge devices,'' \textit{Artif. Intell. Rev.}, vol.~57, p.~242, 2024.
+ 
+\bibitem{b24} B.~L.~Ortiz \textit{et al.}, ``Data preprocessing techniques for AI and machine learning readiness: scoping review of wearable sensor data in cancer care,'' \textit{JMIR mHealth uHealth}, vol.~12, p.~e59587, 2024.
+ 
+\bibitem{b25} T.~Y.~Lin, P.~Goyal, R.~Girshick, K.~He, and P.~Doll\'{a}r, ``Focal loss for dense object detection,'' in \textit{Proc. IEEE Int. Conf. Comput. Vis. (ICCV)}, Venice, Italy, 2017, pp.~2980--2988.
+ 
+\bibitem{b26} R.~R.~Selvaraju, M.~Cogswell, A.~Das, R.~Vedantam, D.~Parikh, and D.~Batra, ``Grad-CAM: visual explanations from deep networks via gradient-based localization,'' in \textit{Proc. IEEE Int. Conf. Comput. Vis. (ICCV)}, Venice, Italy, 2017, pp.~618--626.
+ 
+\end{thebibliography}
+
+\end{document}
