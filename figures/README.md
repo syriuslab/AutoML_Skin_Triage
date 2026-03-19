@@ -1,12 +1,5 @@
 # Figures
 
-Copy your 6 pipeline figures here from Google Drive:
-
-```
-/MyDrive/AutoML_Turkey_Conference_AIR/figures/
-```
-
-Expected files:
 - `Figure1.png` — Pipeline architecture diagram
 - `Figure2.png` — Class distribution
 - `Figure3.png` — Confusion matrices
