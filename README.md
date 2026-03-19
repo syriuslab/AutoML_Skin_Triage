@@ -1,6 +1,6 @@
 # 🔬 Mobile AutoML for Skin Lesion Triage on IoMT Devices
 
-[![Conference](https://img.shields.io/badge/Conference-AIR%202026-blue)](https://www.intconfair.com/)
+[![Conference](https://img.shields.io/badge/Conference-blue)](https://www.intconfair.com/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Python 3.10+](https://img.shields.io/badge/Python-3.10%2B-blue.svg)](https://www.python.org/)
 [![TensorFlow 2.19](https://img.shields.io/badge/TensorFlow-2.19-orange.svg)](https://www.tensorflow.org/)
